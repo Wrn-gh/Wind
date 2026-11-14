@@ -1,0 +1,12 @@
+// 由 CMake 从 WIND_VERSION 生成（CI 里就是 git tag），不要手工编辑，也不要纳入版本控制。
+// 只在 res/wind.rc 里用来填 VERSIONINFO，因此刻意保持纯 ASCII：中文留给 wind.rc。
+#ifndef WIND_VERSION_H
+#define WIND_VERSION_H
+
+// 展示用版本号，允许带预发布后缀，例如 "1.2.0" 或 "1.2.0-rc1"。
+#define WIND_VERSION_STRING "@WIND_VERSION@"
+
+// VERSIONINFO 的 FILEVERSION / PRODUCTVERSION 只接受数字，所以单独给出四段式。
+#define WIND_VERSION_COMMA @WIND_VERSION_COMMA@
+
+#endif

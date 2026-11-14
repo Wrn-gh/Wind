@@ -1,0 +1,5 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!-- Wind 工具栏图标 · 透明度（左空右实圆） · 1024 视口 · 墨迹线宽 88 · currentColor -->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 1024 1024" fill="currentColor">
+  <path d="M512 128a384 384 0 1 0 384 384 384 384 0 0 0-384-384zM216 512a296 296 0 0 1 296-296v592a296 296 0 0 1-296-296z"/>
+</svg>

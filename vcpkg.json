@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "wind",
+  "version": "0.1.0",
+  "description": "Wind - 窗口属性快捷调节工具",
+  "builtin-baseline": "d87340acc46bdeda386037b38aca30136e667e47",
+  "dependencies": [
+    {
+      "name": "imgui",
+      "features": [
+        "win32-binding",
+        "dx11-binding"
+      ]
+    }
+  ]
+}

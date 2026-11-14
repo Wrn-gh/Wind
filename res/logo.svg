@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="_图层_1" data-name="图层 1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1024 1024">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: url(#_未命名的渐变_10);
+      }
+
+      .cls-1, .cls-2 {
+        opacity: .9;
+      }
+
+      .cls-3 {
+        fill: url(#_未命名的渐变_12);
+      }
+
+      .cls-2 {
+        fill: url(#_未命名的渐变_11);
+      }
+    </style>
+    <linearGradient id="_未命名的渐变_12" data-name="未命名的渐变 12" x1="63.81" y1="671.35" x2="940.19" y2="671.35" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f1bfae"/>
+      <stop offset=".18" stop-color="#d2887a"/>
+      <stop offset=".51" stop-color="#cb6f5f"/>
+      <stop offset=".83" stop-color="#d68477"/>
+      <stop offset=".86" stop-color="#db8f82"/>
+      <stop offset="1" stop-color="#f1bfae"/>
+    </linearGradient>
+    <linearGradient id="_未命名的渐变_11" data-name="未命名的渐变 11" x1="-976.33" y1="524.78" x2="-99.94" y2="524.78" gradientTransform="translate(-36.14) rotate(-180) scale(1 -1)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f1e7ab"/>
+      <stop offset=".18" stop-color="#d2bd76"/>
+      <stop offset=".51" stop-color="#cbb15c"/>
+      <stop offset=".83" stop-color="#d6be74"/>
+      <stop offset=".85" stop-color="#d9c37b"/>
+      <stop offset="1" stop-color="#f1e7ab"/>
+    </linearGradient>
+    <linearGradient id="_未命名的渐变_10" data-name="未命名的渐变 10" x1="63.81" y1="352.65" x2="940.19" y2="352.65" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#b5def1"/>
+      <stop offset=".18" stop-color="#87ced2"/>
+      <stop offset=".51" stop-color="#65c6cb"/>
+      <stop offset=".83" stop-color="#7dd4d6"/>
+      <stop offset=".86" stop-color="#85d5da"/>
+      <stop offset="1" stop-color="#b5def1"/>
+    </linearGradient>
+  </defs>
+  <path class="cls-3" d="M63.81,907.49c83.35-7.6,488.99-45.55,651.54-96.35,7.34-2.3,33.14-10.54,64.24-27.53,35.01-19.13,158.74-86.73,160.59-194.82.77-45.24-19.57-111.18-78-140.13-56.57-28.03-114.17-4.2-123.88,0"/>
+  <path class="cls-2" d="M940.19,760.91c-83.35-7.6-488.99-45.55-651.54-96.35-7.34-2.3-33.14-10.54-64.24-27.53-35.01-19.13-158.74-86.73-160.59-194.82-.77-45.24,19.57-111.18,78-140.13,56.57-28.03,114.17-4.2,123.88,0"/>
+  <path class="cls-1" d="M63.81,588.78c83.35-7.6,488.99-45.55,651.54-96.35,7.34-2.3,33.14-10.54,64.24-27.53,35.01-19.13,158.74-86.73,160.59-194.82.77-45.24-19.57-111.18-78-140.13-56.57-28.03-114.17-4.2-123.88,0"/>
+</svg>

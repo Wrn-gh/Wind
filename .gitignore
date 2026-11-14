@@ -1,0 +1,16 @@
+build
+
+.vscode
+
+vcpkg_installed
+
+# 发布产物（安装包、portable zip、校验和）
+dist
+
+# vcpkg 的二进制包缓存（CI 里由 actions/cache 管）
+.vcpkg-cache
+
+# ImGui 运行时写的窗口布局缓存
+imgui.ini
+
+prompt.md
