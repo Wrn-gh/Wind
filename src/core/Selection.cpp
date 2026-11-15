@@ -6,10 +6,11 @@
 
 namespace wind::core {
 
-Selection::Selection(HWND overlayWindow, WindowRegistry& registry) : overlay_(overlayWindow), registry_(&registry) {}
+Selection::Selection(HWND overlayWindow, WindowRegistry& registry, const IgnoreList* ignore)
+    : overlay_(overlayWindow), registry_(&registry), ignore_(ignore) {}
 
 bool Selection::UpdatePointer(POINT screenPoint) {
-    const TargetWindow found = TargetWindow::FindAt(screenPoint, overlay_);
+    const TargetWindow found = TargetWindow::FindAt(screenPoint, overlay_, ignore_);
     const HWND currentHwnd = target_ != nullptr ? target_->Hwnd() : nullptr;
 
     if (found.Hwnd() == currentHwnd) {

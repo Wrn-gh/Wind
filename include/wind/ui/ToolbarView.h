@@ -5,6 +5,7 @@
 #include <array>
 
 #include "wind/core/Selection.h"
+#include "wind/core/Settings.h"
 #include "wind/ui/Theme.h"
 
 namespace wind::ui {
@@ -45,6 +46,9 @@ public:
 
     /// @brief 设置配色：明暗底表 + 可选自定义强调色，由应用层按设置算好后传入。
     void SetTheme(const Theme& theme) { theme_ = theme; }
+
+    /// @brief 设置界面语言：工具栏的文字标签与底部提示条都按它取词。
+    void SetLanguage(core::Language language) { language_ = language; }
 
     /// @brief 指针（屏幕坐标）是否停在工具栏上。
     ///
@@ -102,6 +106,8 @@ private:
     const IconSet* icons_ = nullptr;
     /// 当前配色，默认深色；应用层按设置覆盖。
     Theme theme_ = kDarkTheme;
+    /// 解析后的界面语言（不会是 System）。
+    core::Language language_ = core::Language::Chinese;
     float uiScale_ = 1.0f;
 };
 

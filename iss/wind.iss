@@ -95,7 +95,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
 [Files]
 Source: "{#SourceDir}\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#IssDir}..\README.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#IssDir}..\README.en.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#IssDir}..\README.zh-CN.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"

@@ -45,6 +45,9 @@ public:
     /// @brief 隐藏设置页（不销毁，下次打开无需重建 D3D 设备）。
     void Hide();
 
+    /// @brief 设置窗口标题（不出现在界面上，只影响辅助工具与窗口枚举）。
+    void SetTitle(const wchar_t* title);
+
     HWND Hwnd() const { return hwnd_; }
     bool IsVisible() const { return hwnd_ != nullptr && ::IsWindowVisible(hwnd_) != FALSE; }
     /// @brief 当前 DPI 缩放（96 DPI 对应 1.0），随 WM_DPICHANGED 更新。

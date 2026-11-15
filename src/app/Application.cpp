@@ -7,8 +7,11 @@
 #include "wind/platform/AutoStart.h"
 #include "wind/platform/Dpi.h"
 #include "wind/platform/SingleInstance.h"
+#include "wind/platform/SystemLocale.h"
 #include "wind/platform/SystemTheme.h"
+#include "wind/platform/Text.h"
 #include "wind/platform/Win32Error.h"
+#include "wind/ui/Text.h"
 
 namespace wind::app {
 namespace {
@@ -16,19 +19,9 @@ namespace {
 /// 滚轮单格调整的百分点，比工具栏按钮的步长更细，便于微调。
 constexpr int kOpacityWheelStep = 2;
 
-/// 设置文本都是 ASCII 的 "Ctrl+Alt+W"，但仍按 UTF-8 转换，避免以后加中文字符时静默损坏。
-std::wstring Widen(const std::string& text) {
-    if (text.empty()) {
-        return {};
-    }
-    const int length = static_cast<int>(text.size());
-    const int size = ::MultiByteToWideChar(CP_UTF8, 0, text.data(), length, nullptr, 0);
-    if (size <= 0) {
-        return {};
-    }
-    std::wstring wide(static_cast<size_t>(size), L'\0');
-    ::MultiByteToWideChar(CP_UTF8, 0, text.data(), length, wide.data(), size);
-    return wide;
+/// @brief 设置还没读出来时用的界面语言（错误弹窗要用）：直接跟随系统。
+core::Language SystemUiLanguage() {
+    return platform::SystemUsesChineseUi() ? core::Language::Chinese : core::Language::English;
 }
 
 /// @brief 命令行里是否带了 `--quit`（也接受 `/quit`、`-quit`，大小写不敏感）。
@@ -78,13 +71,14 @@ int Application::Run(HINSTANCE instance) {
     platform::EnablePerMonitorDpiAwareness();
 
     if (!overlay_.Create(instance_, this)) {
-        ::MessageBoxW(nullptr, L"无法创建叠加层窗口，详细信息见 %TEMP%\\Wind.log。", L"Wind", MB_ICONERROR | MB_OK);
+        ::MessageBoxW(nullptr, TrWide(SystemUiLanguage(), ui::Text::ErrorNoOverlay).c_str(), L"Wind",
+                      MB_ICONERROR | MB_OK);
         return 1;
     }
 
     RECT screen = platform::VirtualScreenBounds();
     if (!renderer_.Initialize(overlay_.Hwnd(), screen.right - screen.left, screen.bottom - screen.top)) {
-        ::MessageBoxW(nullptr, L"Direct3D 设备初始化失败，详细信息见 %TEMP%\\Wind.log。", L"Wind",
+        ::MessageBoxW(nullptr, TrWide(SystemUiLanguage(), ui::Text::ErrorNoDevice).c_str(), L"Wind",
                       MB_ICONERROR | MB_OK);
         overlay_.Destroy();
         return 1;
@@ -116,14 +110,21 @@ int Application::Run(HINSTANCE instance) {
     if (trayReady) {
         SyncTrayHotkey();
         if (hotkeyStatus == HotkeyStatus::Unavailable) {
-            tray_.Notify(L"当前没有全局快捷键",
-                         L"配置的快捷键已被其他程序占用，请通过托盘菜单的「设置…」换一个。点击此处修改。", true);
+            const std::wstring text = ui::TrWide(uiLanguage_, ui::Text::NotifyHotkeyBusyText);
+            if (!toggleHotkeyAvailable_ && !ignoreHotkeyAvailable_) {
+                tray_.Notify(ui::TrWide(uiLanguage_, ui::Text::NotifyHotkeyBusyTitleAll).c_str(), text.c_str(), true);
+            } else if (!toggleHotkeyAvailable_) {
+                tray_.Notify(ui::TrWide(uiLanguage_, ui::Text::NotifyHotkeyBusyTitlePick).c_str(), text.c_str(), true);
+            } else {
+                tray_.Notify(ui::TrWide(uiLanguage_, ui::Text::NotifyHotkeyBusyTitleIgnore).c_str(), text.c_str(),
+                             true);
+            }
         }
 
         // Ctrl+Alt+Q（退出）已删除，只在首次启动时提示一次，避免每次开机都弹。
         if (!settings_.quitHotkeyNoticeShown) {
-            tray_.Notify(L"退出快捷键已取消",
-                         L"为避免与其他程序抢热键，Ctrl+Alt+Q 不再保留；请通过托盘菜单退出。", false);
+            tray_.Notify(ui::TrWide(uiLanguage_, ui::Text::NotifyQuitHotkeyTitle).c_str(),
+                         ui::TrWide(uiLanguage_, ui::Text::NotifyQuitHotkeyText).c_str(), false);
             settings_.quitHotkeyNoticeShown = true;
             core::SettingsStore::Save(settings_);
         }
@@ -131,12 +132,9 @@ int Application::Run(HINSTANCE instance) {
 
     // 既没有热键也没有托盘，程序就彻底没有入口了：这是唯一需要用户当场知道的错误。
     if (!trayReady && hotkeyStatus == HotkeyStatus::Unavailable) {
-        ::MessageBoxW(nullptr,
-                      L"Wind 无法注册全局快捷键，托盘图标也创建失败，程序没有任何操作入口。\n"
-                      L"请检查系统资源后重启，详细信息见 %TEMP%\\Wind.log。",
-                      L"Wind", MB_ICONERROR | MB_OK);
+        ::MessageBoxW(nullptr, ui::TrWide(uiLanguage_, ui::Text::ErrorNoEntry).c_str(), L"Wind",
+                      MB_ICONERROR | MB_OK);
     }
-
     MSG message{};
     while (::GetMessageW(&message, nullptr, 0, 0) > 0) {
         if (message.message == WM_HOTKEY) {
@@ -171,6 +169,7 @@ int Application::Run(HINSTANCE instance) {
         ::DispatchMessageW(&message);
     }
 
+    LeaveIgnorePicker();
     LeaveSelection();
     // 退出前把本次会话改动过的窗口全部恢复原状，否则用户关掉 Wind 后
     // 那些被调过透明度/置顶的窗口就永远停在半透明或置顶状态了。
@@ -180,6 +179,7 @@ int Application::Run(HINSTANCE instance) {
     settingsView_.SetIcons(nullptr);
     settingsIcons_.Release();
     settingsRenderer_.Shutdown();
+    ignoreHotkey_.Unregister();
     toggleHotkey_.Unregister();
     toolbar_.SetIcons(nullptr);
     icons_.Release();
@@ -192,60 +192,91 @@ int Application::Run(HINSTANCE instance) {
 HotkeyStatus Application::LoadSettingsAndHotkey() {
     settings_ = core::SettingsStore::Load();
     if (!core::IsValidHotkey(settings_.toggleHotkey)) {
-        platform::Log("设置里的快捷键非法，改用默认值 Ctrl+Alt+W。");
+        platform::Log("设置里的选取快捷键非法，改用默认值 Ctrl+Alt+W。");
         settings_.toggleHotkey = core::kDefaultSettings.toggleHotkey;
     }
-
-    activeHotkey_ = settings_.toggleHotkey;
-    if (RegisterToggleHotkey(activeHotkey_)) {
-        toggleHotkeyAvailable_ = true;
-        platform::Log("全局热键已注册：%s", core::FormatHotkey(activeHotkey_).c_str());
-        return HotkeyStatus::Ok;
+    if (!core::IsValidHotkey(settings_.ignoreHotkey)) {
+        platform::Log("设置里的忽略快捷键非法，改用默认值 Ctrl+Alt+I。");
+        settings_.ignoreHotkey = core::kDefaultSettings.ignoreHotkey;
+    }
+    // 两组热键不能相同：同一个组合键注册两次，后者必然失败。
+    if (settings_.ignoreHotkey == settings_.toggleHotkey) {
+        platform::Log("忽略快捷键与选取快捷键相同，忽略快捷键改用默认值 Ctrl+Alt+I。");
+        settings_.ignoreHotkey = core::kDefaultSettings.ignoreHotkey;
+        if (settings_.ignoreHotkey == settings_.toggleHotkey) {
+            settings_.ignoreHotkey = {MOD_CONTROL | MOD_ALT | MOD_SHIFT, 'I'};
+        }
     }
 
-    // 不再尝试备选键：在用户机器上悄悄占用别的组合键，比“暂时没有全局热键”更糟。
-    toggleHotkeyAvailable_ = false;
-    platform::Log("配置的快捷键已被其他程序占用，本次启动没有全局热键，仅保留托盘入口。");
-    return HotkeyStatus::Unavailable;
+    ignoreList_.Reset(settings_.ignoredWindows);
+
+    // 语言必须在读取设置之后立刻应用：后面的托盘提示、设置页都要用正确的语言。
+    ApplyUiLanguage(settings_);
+
+    activeHotkey_ = settings_.toggleHotkey;
+    activeIgnoreHotkey_ = settings_.ignoreHotkey;
+
+    toggleHotkeyAvailable_ = RegisterHotkey(toggleHotkey_, kToggleHotkeyId, activeHotkey_);
+    if (toggleHotkeyAvailable_) {
+        platform::Log("选取快捷键已注册：%s", core::FormatHotkey(activeHotkey_).c_str());
+    } else {
+        // 不再尝试备选键：在用户机器上悄悄占用别的组合键，比“暂时没有全局热键”更糟。
+        platform::Log("选取快捷键已被其他程序占用，本次启动没有该热键，仅保留托盘入口。");
+    }
+
+    ignoreHotkeyAvailable_ = RegisterHotkey(ignoreHotkey_, kIgnoreHotkeyId, activeIgnoreHotkey_);
+    if (ignoreHotkeyAvailable_) {
+        platform::Log("忽略快捷键已注册：%s", core::FormatHotkey(activeIgnoreHotkey_).c_str());
+    } else {
+        platform::Log("忽略快捷键已被其他程序占用，本次启动没有该热键，可在设置里换一个。");
+    }
+
+    return (toggleHotkeyAvailable_ && ignoreHotkeyAvailable_) ? HotkeyStatus::Ok : HotkeyStatus::Unavailable;
 }
 
-bool Application::RegisterToggleHotkey(const core::HotkeyBinding& binding) {
+bool Application::RegisterHotkey(platform::Hotkey& hotkey, int id, const core::HotkeyBinding& binding) {
     if (!core::IsValidHotkey(binding)) {
         return false;
     }
-    return toggleHotkey_.Register(nullptr, kToggleHotkeyId, binding.modifiers | MOD_NOREPEAT, binding.virtualKey);
+    return hotkey.Register(nullptr, id, binding.modifiers | MOD_NOREPEAT, binding.virtualKey);
 }
 
-bool Application::ApplyToggleHotkey(const core::HotkeyBinding& binding) {
+bool Application::ApplyHotkey(platform::Hotkey& hotkey, int id, const core::HotkeyBinding& binding,
+                              core::HotkeyBinding& active, bool& available) {
     // 没改动就别重新注册：Register 会先注销旧键，成功的注册也会有一次空窗。
-    if (toggleHotkeyAvailable_ && binding == activeHotkey_) {
+    if (available && binding == active) {
         return true;
     }
 
-    const core::HotkeyBinding previous = activeHotkey_;
-    const bool hadPrevious = toggleHotkeyAvailable_;
-    if (RegisterToggleHotkey(binding)) {
-        activeHotkey_ = binding;
-        toggleHotkeyAvailable_ = true;
+    const core::HotkeyBinding previous = active;
+    const bool hadPrevious = available;
+    if (RegisterHotkey(hotkey, id, binding)) {
+        active = binding;
+        available = true;
         return true;
     }
 
     // 改坏了不能连旧键也丢掉，否则用户得重启才能恢复入口。
     if (hadPrevious) {
-        RegisterToggleHotkey(previous);
-        activeHotkey_ = previous;
-        toggleHotkeyAvailable_ = true;
+        RegisterHotkey(hotkey, id, previous);
+        active = previous;
+        available = true;
     } else {
-        toggleHotkeyAvailable_ = false;
+        available = false;
     }
     return false;
 }
 
 void Application::SyncTrayHotkey() {
     if (toggleHotkeyAvailable_) {
-        tray_.SetToggleHotkey(Widen(core::FormatHotkey(activeHotkey_)), true);
+        tray_.SetToggleHotkey(platform::Widen(core::FormatHotkey(activeHotkey_)), true);
     } else {
         tray_.SetToggleHotkey(std::wstring(), false);
+    }
+    if (ignoreHotkeyAvailable_) {
+        tray_.SetIgnoreHotkey(platform::Widen(core::FormatHotkey(activeIgnoreHotkey_)), true);
+    } else {
+        tray_.SetIgnoreHotkey(std::wstring(), false);
     }
 }
 
@@ -285,15 +316,33 @@ void Application::HandleHotkey(int hotkeyId) {
                 ::SetForegroundWindow(settingsWindow_.Hwnd());
                 return;
             }
-            if (selecting_) {
+            if (ignorePicking_) {
+                LeaveIgnorePicker();
+            } else if (selecting_) {
                 LeaveSelection();
             } else {
                 EnterSelection();
             }
             break;
 
+        case kIgnoreHotkeyId:
+            if (settingsOpen_) {
+                ::SetForegroundWindow(settingsWindow_.Hwnd());
+                return;
+            }
+            if (ignorePicking_) {
+                LeaveIgnorePicker();
+            } else {
+                EnterIgnorePicker();
+            }
+            break;
+
         case kEscapeHotkeyId:
-            LeaveSelection();
+            if (ignorePicking_) {
+                LeaveIgnorePicker();
+            } else {
+                LeaveSelection();
+            }
             break;
 
         default:
@@ -305,6 +354,9 @@ void Application::OnTrayCommand(ui::TrayIcon::Command command) {
     switch (command) {
         case ui::TrayIcon::Command::ToggleSelection:
             HandleHotkey(kToggleHotkeyId);
+            break;
+        case ui::TrayIcon::Command::IgnorePicker:
+            HandleHotkey(kIgnoreHotkeyId);
             break;
         case ui::TrayIcon::Command::Settings:
             OpenSettings();
@@ -321,9 +373,11 @@ void Application::EnterSelection() {
     if (selecting_) {
         return;
     }
+    // 两个模式共用叠加层与定时器，进入任一个前先退掉另一个。
+    LeaveIgnorePicker();
 
     const RECT screen = platform::VirtualScreenBounds();
-    selection_ = std::make_unique<core::Selection>(overlay_.Hwnd(), registry_);
+    selection_ = std::make_unique<core::Selection>(overlay_.Hwnd(), registry_, &ignoreList_);
 
     // 进入前先按最新显示器布局校正叠加层与交换链，避免换过分辨率后描边错位。
     overlay_.Show();
@@ -357,7 +411,121 @@ void Application::LeaveSelection() {
     selection_.reset();
 }
 
+void Application::EnterIgnorePicker() {
+    if (ignorePicking_) {
+        return;
+    }
+    // 两个模式互斥：选取态的工具栏会挡住用户要点的窗口。
+    LeaveSelection();
+
+    const RECT screen = platform::VirtualScreenBounds();
+    overlay_.Show();
+    renderer_.Resize(screen.right - screen.left, screen.bottom - screen.top);
+    SyncUiScale();
+
+    ignoreTarget_ = core::TargetWindow{};
+
+    POINT cursor{};
+    ::GetCursorPos(&cursor);
+    UpdateIgnoreTarget(cursor);
+
+    escapeHotkey_.Register(nullptr, kEscapeHotkeyId, MOD_NOREPEAT, VK_ESCAPE);
+
+    ignorePicking_ = true;
+    ::SetTimer(overlay_.Hwnd(), kFrameTimerId, kFrameIntervalMs, nullptr);
+}
+
+void Application::LeaveIgnorePicker() {
+    if (!ignorePicking_) {
+        return;
+    }
+
+    ignorePicking_ = false;
+    ignoreTarget_ = core::TargetWindow{};
+    ::KillTimer(overlay_.Hwnd(), kFrameTimerId);
+    if (!selecting_) {
+        escapeHotkey_.Unregister();
+        overlay_.Hide();
+    }
+}
+
+void Application::UpdateIgnoreTarget(POINT screenPoint) {
+    // 忽略选取不需要 registry_ 快照：这一模式只读类名与进程名，从不改窗口属性。
+    const core::TargetWindow candidate = core::TargetWindow::FindAt(screenPoint, overlay_.Hwnd(), &ignoreList_);
+    // 命中不到时保留上一次的目标，鼠标划过缝隙不会让准星来回闪。
+    if (candidate.IsValid()) {
+        ignoreTarget_ = candidate;
+        return;
+    }
+    if (!ignoreTarget_.IsValid()) {
+        ignoreTarget_ = core::TargetWindow{};
+    }
+}
+
+void Application::CommitIgnoreTarget() {
+    if (!ignoreTarget_.IsValid()) {
+        return;
+    }
+
+    const HWND target = ignoreTarget_.Hwnd();
+    if (ignoreList_.Matches(target)) {
+        LeaveIgnorePicker();
+        tray_.Notify(ui::TrWide(uiLanguage_, ui::Text::NotifyIgnoreExistsTitle).c_str(),
+                     ui::TrWide(uiLanguage_, ui::Text::NotifyIgnoreExistsText).c_str(), false);
+        return;
+    }
+
+    core::IgnoreRule rule;
+    if (!core::MakeIgnoreRule(target, &rule)) {
+        // 高权限窗口取不到进程名：加入去也永远匹配不上，不如当场说清。
+        LeaveIgnorePicker();
+        tray_.Notify(ui::TrWide(uiLanguage_, ui::Text::NotifyIgnoreNoProcessTitle).c_str(),
+                     ui::TrWide(uiLanguage_, ui::Text::NotifyIgnoreNoProcessText).c_str(), true);
+        return;
+    }
+
+    if (ignoreList_.Rules().size() >= core::IgnoreList::kMaxRules) {
+        LeaveIgnorePicker();
+        tray_.Notify(ui::TrWide(uiLanguage_, ui::Text::NotifyIgnoreFullTitle).c_str(),
+                     ui::TrWide(uiLanguage_, ui::Text::NotifyIgnoreFullText).c_str(), true);
+        return;
+    }
+    if (!ignoreList_.Add(rule)) {
+        LeaveIgnorePicker();
+        tray_.Notify(ui::TrWide(uiLanguage_, ui::Text::NotifyIgnoreBadRuleTitle).c_str(),
+                     ui::TrWide(uiLanguage_, ui::Text::NotifyIgnoreBadRuleText).c_str(), true);
+        return;
+    }
+
+    settings_.ignoredWindows = ignoreList_.Rules();
+    core::SettingsStore::Save(settings_);
+    LeaveIgnorePicker();
+
+    // 标题用「进程 · 类名」，用户一眼能对上自己刚才点的窗口。
+    const std::wstring name = rule.Describe();
+    tray_.Notify(name.c_str(), ui::TrWide(uiLanguage_, ui::Text::NotifyIgnoreAddedText).c_str(), false);
+}
+
+void Application::RenderIgnorePickerFrame() {
+    renderer_.BeginFrame();
+    const RECT screen = platform::VirtualScreenBounds();
+    const POINT origin{screen.left, screen.top};
+
+    RECT bounds{};
+    const bool hasTarget = ignoreTarget_.IsValid();
+    if (hasTarget) {
+        bounds = ignoreTarget_.Bounds();
+    }
+    const char* hint = ui::Tr(uiLanguage_, hasTarget ? ui::Text::HintIgnoreTarget : ui::Text::HintIgnoreNoTarget);
+    ignorePickerView_.Draw(bounds, origin, hint);
+    renderer_.EndFrame();
+}
+
 void Application::RenderFrame() {
+    if (ignorePicking_) {
+        RenderIgnorePickerFrame();
+        return;
+    }
     if (!selecting_ || !selection_) {
         return;
     }
@@ -395,6 +563,10 @@ void Application::ApplyCommand(const ui::ToolbarView::Command& command) {
 }
 
 void Application::OnPointerMoved(POINT screenPoint) {
+    if (ignorePicking_) {
+        UpdateIgnoreTarget(screenPoint);
+        return;
+    }
     if (selection_ == nullptr) {
         return;
     }
@@ -408,17 +580,25 @@ void Application::OnPointerMoved(POINT screenPoint) {
 }
 
 void Application::OnWheel(int delta) {
-    if (selection_ == nullptr || delta == 0) {
+    if (ignorePicking_ || selection_ == nullptr || delta == 0) {
         return;
     }
     selection_->AdjustOpacity(delta > 0 ? kOpacityWheelStep : -kOpacityWheelStep);
 }
 
 void Application::OnPrimaryClick() {
+    if (ignorePicking_) {
+        CommitIgnoreTarget();
+        return;
+    }
     // 工具栏上的点击由 ImGui 自行消费；叠加层空白区域的点击无需额外处理。
 }
 
 void Application::OnDismissRequested() {
+    if (ignorePicking_) {
+        LeaveIgnorePicker();
+        return;
+    }
     // 在工具栏上点右键不应退出选取模式，否则拖滑块时手滑就退出了。
     POINT cursor{};
     if (::GetCursorPos(&cursor) != FALSE && toolbar_.ContainsScreenPoint(cursor)) {
@@ -437,6 +617,7 @@ void Application::SyncUiScale() {
     const float scale = platform::WindowDpiScale(overlay_.Hwnd());
     renderer_.SetUiScale(scale);
     toolbar_.SetUiScale(scale);
+    ignorePickerView_.SetUiScale(scale);
 }
 
 void Application::PreviewTheme(const core::Settings& settings) {
@@ -445,9 +626,27 @@ void Application::PreviewTheme(const core::Settings& settings) {
     theme_ = ui::MakeTheme(light, settings.accentRgb);
     renderer_.SetTheme(light, settings.accentRgb);
     toolbar_.SetTheme(theme_);
+    ignorePickerView_.SetTheme(theme_);
     settingsView_.SetTheme(theme_);
     if (settingsRendererReady_) {
         settingsRenderer_.SetTheme(light, settings.accentRgb);
+    }
+    // 语言与配色同一条路径：设置页每帧预览 → 立即生效；关窗时 SyncTheme 用落盘值回滚。
+    ApplyUiLanguage(settings);
+}
+
+void Application::ApplyUiLanguage(const core::Settings& settings) {
+    const core::Language resolved =
+        settings.UsesChineseUi(platform::SystemUsesChineseUi()) ? core::Language::Chinese : core::Language::English;
+    if (resolved == uiLanguage_) {
+        return;
+    }
+    uiLanguage_ = resolved;
+    toolbar_.SetLanguage(uiLanguage_);
+    settingsView_.SetLanguage(uiLanguage_);
+    tray_.SetLanguage(uiLanguage_);
+    if (settingsWindowReady_) {
+        settingsWindow_.SetTitle(ui::TrWide(uiLanguage_, ui::Text::WindowSettingsTitle).c_str());
     }
 }
 
@@ -486,6 +685,7 @@ void Application::OpenSettings() {
 
     // 设置页与选取态互斥：两边都要 ImGui 输入、都要键盘，叠在一起必然互相抢。
     LeaveSelection();
+    LeaveIgnorePicker();
 
     // 打开前先把自启项的真实状态同步进配置：用户可能在关掉本程序期间从任务管理器
     // 禁用或删除了自启项，页面必须显示“现在到底会不会自启”，而不是上次保存的旧值。
@@ -497,11 +697,14 @@ void Application::OpenSettings() {
     }
 
     // 第二个参数故意传当前生效的热键，页面据此区分“配置值”和“真正能用的值”。
-    core::Settings activeSnapshot = settings_;
-    activeSnapshot.toggleHotkey = activeHotkey_;
-    settingsView_.Open(settings_, activeSnapshot, toggleHotkeyAvailable_);
-    if (!toggleHotkeyAvailable_) {
-        settingsView_.SetNotice("当前没有生效的全局快捷键，请在这里重新设置。");
+    ui::ActiveHotkeys active{};
+    active.toggle = activeHotkey_;
+    active.toggleAvailable = toggleHotkeyAvailable_;
+    active.ignorePicker = activeIgnoreHotkey_;
+    active.ignorePickerAvailable = ignoreHotkeyAvailable_;
+    settingsView_.Open(settings_, active);
+    if (!toggleHotkeyAvailable_ || !ignoreHotkeyAvailable_) {
+        settingsView_.SetNotice(ui::Tr(uiLanguage_, ui::Text::NoticeHotkeyNotActive));
     }
 
     settingsWindow_.Show(kSettingsWidth, kSettingsHeight);
@@ -516,7 +719,7 @@ void Application::OpenSettings() {
         if (!settingsRenderer_.Initialize(settingsWindow_.Hwnd(), width, height)) {
             settingsOpen_ = false;
             settingsWindow_.Hide();
-            ::MessageBoxW(nullptr, L"设置页的渲染器初始化失败，详细信息见 %TEMP%\\Wind.log。", L"Wind",
+            ::MessageBoxW(nullptr, ui::TrWide(uiLanguage_, ui::Text::ErrorSettingsRenderer).c_str(), L"Wind",
                           MB_ICONERROR | MB_OK);
             return;
         }
@@ -586,18 +789,26 @@ void Application::RenderSettingsFrame() {
         const bool applied = working.autoStart ? platform::SetAutoStart(platform::kAutoStartValueName)
                                                : platform::RemoveAutoStart(platform::kAutoStartValueName);
         if (!applied) {
-            settingsView_.SetError("无法修改开机自启项，请检查是否有安全软件拦截。");
+            settingsView_.SetError(ui::Tr(uiLanguage_, ui::Text::ErrorAutoStartFailed));
             return;
         }
     }
 
     if (!ApplyToggleHotkey(working.toggleHotkey)) {
         // 冲突只提示、不关窗：用户改一个能用的组合键再点确定即可。
-        settingsView_.SetError("该快捷键已被其他程序占用，请换一个组合键。");
+        settingsView_.SetError(ui::Tr(uiLanguage_, ui::Text::ErrorPickHotkeyBusy));
+        return;
+    }
+    if (!ApplyIgnoreHotkey(working.ignoreHotkey)) {
+        // 选取键已经换成新的了，这里失败就把它一并回滚，整次提交算失败。
+        ApplyToggleHotkey(settings_.toggleHotkey);
+        settingsView_.SetError(ui::Tr(uiLanguage_, ui::Text::ErrorIgnoreHotkeyBusy));
         return;
     }
 
     settings_ = working;
+    // 列表可能被删过项：重建索引，让下一次选取立刻按新规则跳过窗口。
+    ignoreList_.Reset(settings_.ignoredWindows);
     core::SettingsStore::Save(settings_);
     SyncTrayHotkey();
     CloseSettings(true);

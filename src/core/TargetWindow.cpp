@@ -2,28 +2,13 @@
 
 #include <dwmapi.h>
 
+#include <algorithm>
 #include <iterator>
+
+#include "wind/core/IgnoreList.h"
 
 namespace wind::core {
 namespace {
-
-/// 桌面、任务栏等外壳窗口不应该成为调节对象。
-bool IsShellWindow(const wchar_t* className) {
-    static const wchar_t* const kSkipped[] = {
-        L"Progman",
-        L"WorkerW",
-        L"Shell_TrayWnd",
-        L"Shell_SecondaryTrayWnd",
-        L"Windows.UI.Core.CoreWindow",
-        L"ForegroundStaging",
-    };
-    for (const wchar_t* skipped : kSkipped) {
-        if (::wcscmp(className, skipped) == 0) {
-            return true;
-        }
-    }
-    return false;
-}
 
 RECT QueryBounds(HWND hwnd) {
     RECT bounds{};
@@ -34,7 +19,7 @@ RECT QueryBounds(HWND hwnd) {
     return bounds;
 }
 
-bool IsEligible(HWND hwnd) {
+bool IsEligible(HWND hwnd, const IgnoreList* ignore) {
     if (::IsWindowVisible(hwnd) == FALSE || ::IsIconic(hwnd) != FALSE) {
         return false;
     }
@@ -45,9 +30,14 @@ bool IsEligible(HWND hwnd) {
         return false;
     }
 
-    wchar_t className[128]{};
-    ::GetClassNameW(hwnd, className, static_cast<int>(std::size(className)));
-    if (IsShellWindow(className)) {
+    const std::wstring className = IgnoreList::WindowClassName(hwnd);
+    const std::vector<std::wstring>& skipped = BuiltinExcludedClasses();
+    if (std::find(skipped.begin(), skipped.end(), className) != skipped.end()) {
+        return false;
+    }
+    // 用户规则是内置黑名单之上的额外一层：被忽略的窗口在枚举里直接消失，
+    // 视觉上就像它不存在，指针移过去时由调用方的 sticky 逻辑保留上一个目标。
+    if (ignore != nullptr && ignore->Matches(hwnd)) {
         return false;
     }
 
@@ -58,10 +48,22 @@ bool IsEligible(HWND hwnd) {
 
 }  // namespace
 
-TargetWindow TargetWindow::FindAt(POINT screenPoint, HWND exclude) {
+const std::vector<std::wstring>& BuiltinExcludedClasses() {
+    static const std::vector<std::wstring> kBuiltin = {
+        L"Progman",
+        L"WorkerW",
+        L"Shell_TrayWnd",
+        L"Shell_SecondaryTrayWnd",
+        L"Windows.UI.Core.CoreWindow",
+        L"ForegroundStaging",
+    };
+    return kBuiltin;
+}
+
+TargetWindow TargetWindow::FindAt(POINT screenPoint, HWND exclude, const IgnoreList* ignore) {
     // 按 Z 序从最上层开始枚举，第一个包含光标的用户窗口就是视觉上被点到的窗口。
     for (HWND hwnd = ::GetTopWindow(nullptr); hwnd != nullptr; hwnd = ::GetWindow(hwnd, GW_HWNDNEXT)) {
-        if (hwnd == exclude || !IsEligible(hwnd)) {
+        if (hwnd == exclude || !IsEligible(hwnd, ignore)) {
             continue;
         }
         const RECT bounds = QueryBounds(hwnd);
@@ -91,6 +93,13 @@ std::wstring TargetWindow::Title() const {
     const int copied = ::GetWindowTextW(hwnd_, title.data(), length + 1);
     title.resize(copied > 0 ? static_cast<size_t>(copied) : 0);
     return title;
+}
+
+std::wstring TargetWindow::ClassName() const {
+    if (!IsValid()) {
+        return {};
+    }
+    return IgnoreList::WindowClassName(hwnd_);
 }
 
 DWORD TargetWindow::ProcessId() const {

@@ -7,7 +7,9 @@
 #include <cstdio>
 
 #include "wind/platform/Dpi.h"
+#include "wind/ui/HintBar.h"
 #include "wind/ui/IconSet.h"
+#include "wind/ui/Text.h"
 
 namespace wind::ui {
 namespace {
@@ -42,9 +44,6 @@ constexpr float kIconTextGap = 5.0f;
 /// 透明度区块底部进度条的左右内缩与高度。
 constexpr float kTrackInset = 5.0f;
 constexpr float kTrackHeight = 3.0f;
-
-constexpr float kHintPaddingX = 14.0f;
-constexpr float kHintPaddingY = 9.0f;
 
 /// 滚轮 / 按钮单步调整的百分点。
 constexpr int kStep = 5;
@@ -343,7 +342,7 @@ void ToolbarView::DrawBar(const core::Selection& selection, bool locked, float l
                     useIcon = true;
                     iconId = IconSet::Id::Pin;
                 } else {
-                    label = pinned ? "已置顶" : "置顶";
+                    label = Tr(language_, pinned ? Text::ToolbarPinned : Text::ToolbarPin);
                 }
                 if (pinned) {
                     draw->AddRectFilled(segMin, segMax, theme.accent, Px(kSegmentRounding));
@@ -358,7 +357,7 @@ void ToolbarView::DrawBar(const core::Selection& selection, bool locked, float l
                 break;
             case Segment::Kind::Opacity:
                 if (locked) {
-                    label = "已锁定";
+                    label = Tr(language_, Text::ToolbarLocked);
                     break;
                 }
                 ::snprintf(percentBuffer, sizeof(percentBuffer), "%d%%", sliderValue_);
@@ -371,7 +370,7 @@ void ToolbarView::DrawBar(const core::Selection& selection, bool locked, float l
                     useIcon = true;
                     iconId = IconSet::Id::Reset;
                 } else {
-                    label = "重置";
+                    label = Tr(language_, Text::ToolbarReset);
                 }
                 break;
         }
@@ -434,33 +433,7 @@ void ToolbarView::DrawTargetFrame(const core::Selection& selection, POINT origin
 }
 
 void ToolbarView::DrawHint(POINT origin) {
-    const ImGuiIO& io = ImGui::GetIO();
-    constexpr const char* kHintText = "移动鼠标选择目标窗口 · 右键或 Esc 退出";
-
-    const ImVec2 textSize = ImGui::CalcTextSize(kHintText);
-    const ImVec2 padding(Px(kHintPaddingX), Px(kHintPaddingY));
-    const ImVec2 boxSize(textSize.x + padding.x * 2.0f, textSize.y + padding.y * 2.0f);
-
-    // 贴着主显示器工作区底部摆放，避免被任务栏挡住（工作区已扣除任务栏）。
-    const RECT work = platform::WorkAreaBounds();
-    const float workLeft = static_cast<float>(work.left - origin.x);
-    const float workBottom = static_cast<float>(work.bottom - origin.y);
-
-    float x = workLeft + (static_cast<float>(work.right - work.left) - boxSize.x) * 0.5f;
-    x = std::clamp(x, Px(kMargin), std::max(Px(kMargin), io.DisplaySize.x - boxSize.x - Px(kMargin)));
-
-    float y = workBottom - boxSize.y - Px(kMargin) * 2.0f;
-    y = std::min(y, io.DisplaySize.y - boxSize.y - Px(kMargin));
-    y = std::max(y, Px(kMargin));
-
-    const ImVec2 min(x, y);
-    const ImVec2 max(min.x + boxSize.x, min.y + boxSize.y);
-
-    ImDrawList* draw = ImGui::GetBackgroundDrawList();
-    const Theme& theme = theme_;
-    draw->AddRectFilled(min, max, theme.hintBackground, Px(kBarRounding));
-    draw->AddRect(min, max, theme.hintEdge, Px(kBarRounding), 0, Px(kShadowThickness));
-    draw->AddText(ImVec2(min.x + padding.x, min.y + padding.y), theme.hintText, kHintText);
+    DrawHintBar(theme_, uiScale_, origin, Tr(language_, Text::HintPickMode));
 }
 
 void ToolbarView::SyncSlider(const core::Selection& selection) {

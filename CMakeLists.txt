@@ -42,18 +42,25 @@ add_executable(Wind WIN32
     src/platform/Renderer.cpp
     src/platform/SingleInstance.cpp
     src/platform/SystemTheme.cpp
+    src/platform/SystemLocale.cpp
+    src/platform/Text.cpp
+    src/platform/ProcessInfo.cpp
     src/core/TargetWindow.cpp
     src/core/WindowProperties.cpp
     src/core/WindowRegistry.cpp
+    src/core/IgnoreList.cpp
     src/core/Selection.cpp
     src/core/Settings.cpp
     src/core/SettingsStore.cpp
     src/ui/OverlayWindow.cpp
     src/ui/ToolbarView.cpp
+    src/ui/HintBar.cpp
+    src/ui/IgnorePickerView.cpp
     src/ui/IconSet.cpp
     src/ui/SettingsView.cpp
     src/ui/SettingsWindow.cpp
     src/ui/TrayIcon.cpp
+    src/ui/Text.cpp
     res/wind.rc
 )
 

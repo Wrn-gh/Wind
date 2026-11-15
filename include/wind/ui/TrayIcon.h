@@ -4,6 +4,8 @@
 
 #include <string>
 
+#include "wind/core/Settings.h"
+
 namespace wind::ui {
 
 /// @brief 任务栏通知区图标：不记热键也能操作程序的入口。
@@ -17,6 +19,7 @@ public:
     enum class Command {
         None,
         ToggleSelection,
+        IgnorePicker,
         Settings,
         Quit,
     };
@@ -51,6 +54,14 @@ public:
     /// @param available false 表示当前没有生效的全局热键，菜单项不再显示快捷键。
     void SetToggleHotkey(std::wstring text, bool available);
 
+    /// @brief 更新「选取要忽略的窗口」的快捷键文案。
+    /// @param text 形如 "Ctrl+Alt+I" 的文本。
+    /// @param available false 表示当前没有生效的全局热键，菜单项不再显示快捷键。
+    void SetIgnoreHotkey(std::wstring text, bool available);
+
+    /// @brief 设置界面语言：菜单项与悬浮提示即时换成对应语言。
+    void SetLanguage(core::Language language);
+
     /// @brief 弹出一条托盘气泡提示（非模态、不抢焦点）。
     /// @param title 标题，最多 63 个字符。
     /// @param text 正文，最多 255 个字符。
@@ -71,6 +82,7 @@ private:
     static constexpr UINT kMenuToggle = 1;
     static constexpr UINT kMenuSettings = 2;
     static constexpr UINT kMenuQuit = 3;
+    static constexpr UINT kMenuIgnore = 4;
 
     HWND hwnd_ = nullptr;
     HICON icon_ = nullptr;
@@ -79,7 +91,10 @@ private:
     bool added_ = false;
     UINT taskbarCreatedMessage_ = 0;
     std::wstring toggleHotkeyText_ = L"Ctrl+Alt+W";
+    std::wstring ignoreHotkeyText_ = L"Ctrl+Alt+I";
     bool hotkeyAvailable_ = true;
+    bool ignoreHotkeyAvailable_ = true;
+    core::Language language_ = core::Language::System;
 };
 
 }  // namespace wind::ui

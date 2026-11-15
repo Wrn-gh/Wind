@@ -10,7 +10,9 @@
 
 #include "resource.h"
 #include "wind/platform/SingleInstance.h"
+#include "wind/platform/Text.h"
 #include "wind/platform/Win32Error.h"
+#include "wind/ui/Text.h"
 
 namespace wind::ui {
 namespace {
@@ -153,11 +155,12 @@ HICON CreateAppIcon(int size) {
 }
 
 /// @brief 悬浮提示：Wind 是窗口工具，热键只是入口之一，没有热键时也要能自解释。
-std::wstring BuildToolTip(const std::wstring& hotkey, bool available) {
+std::wstring BuildToolTip(const std::wstring& hotkey, bool available, core::Language language) {
     if (hotkey.empty() || !available) {
-        return L"Wind — 窗口工具（点击打开菜单）";
+        return TrWide(language, Text::TrayTipIdle);
     }
-    return L"Wind — 窗口工具（" + hotkey + L" 开始选取）";
+    // 文案表是 UTF-8 窄串、%s 按窄串填；热键本身是宽串，先转窄再整体转回宽。
+    return platform::Widen(TrFormat(language, Text::TrayTipHotkey, platform::Narrow(hotkey).c_str()));
 }
 
 }  // namespace
@@ -223,7 +226,7 @@ void TrayIcon::AddIcon() {
     data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
     data.uCallbackMessage = kCallbackMessage;
     data.hIcon = icon_;
-    const std::wstring tip = BuildToolTip(toggleHotkeyText_, hotkeyAvailable_);
+    const std::wstring tip = BuildToolTip(toggleHotkeyText_, hotkeyAvailable_, language_);
     ::lstrcpynW(data.szTip, tip.c_str(), _countof(data.szTip));
     added_ = ::Shell_NotifyIconW(NIM_ADD, &data) != FALSE;
     if (!added_) {
@@ -253,16 +256,26 @@ void TrayIcon::ShowMenu(POINT anchor) {
     if (menu == nullptr) {
         return;
     }
-    std::wstring toggleLabel = selecting_ ? L"结束选取" : L"开始选取";
+    std::wstring toggleLabel = TrWide(language_, selecting_ ? Text::TrayStopPicking : Text::TrayStartPicking);
     if (hotkeyAvailable_ && !toggleHotkeyText_.empty()) {
         toggleLabel += L"\t" + toggleHotkeyText_;
     }
     ::AppendMenuW(menu, MF_STRING, kMenuToggle, toggleLabel.c_str());
     ::SetMenuDefaultItem(menu, kMenuToggle, FALSE);
-    // 退出只走托盘菜单：可配置热键只有「开始选取」一个，避免和别的程序抢热键。
-    ::AppendMenuW(menu, MF_STRING, kMenuSettings, L"设置…");
+
+    std::wstring ignoreLabel = TrWide(language_, Text::TrayIgnorePicker);
+    if (ignoreHotkeyAvailable_ && !ignoreHotkeyText_.empty()) {
+        ignoreLabel += L"\t" + ignoreHotkeyText_;
+    }
+    ::AppendMenuW(menu, MF_STRING, kMenuIgnore, ignoreLabel.c_str());
+
+    // 退出只走托盘菜单：可配置热键只有「开始选取」和「选取要忽略的窗口」两个，不设退出热键，
+    // 避免和别的程序抢。
+    const std::wstring settingsLabel = TrWide(language_, Text::TraySettings);
+    const std::wstring quitLabel = TrWide(language_, Text::TrayQuit);
+    ::AppendMenuW(menu, MF_STRING, kMenuSettings, settingsLabel.c_str());
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    ::AppendMenuW(menu, MF_STRING, kMenuQuit, L"退出");
+    ::AppendMenuW(menu, MF_STRING, kMenuQuit, quitLabel.c_str());
 
     // 菜单必须由当前前台窗口弹出，否则点菜单外面不会关闭；宿主窗口是隐藏的，
     // 这里 SetForegroundWindow 不一定成功，所以再用 PostMessage(WM_NULL) 兜底。
@@ -277,6 +290,8 @@ void TrayIcon::ShowMenu(POINT anchor) {
     }
     if (selected == kMenuToggle) {
         listener_->OnTrayCommand(Command::ToggleSelection);
+    } else if (selected == kMenuIgnore) {
+        listener_->OnTrayCommand(Command::IgnorePicker);
     } else if (selected == kMenuSettings) {
         listener_->OnTrayCommand(Command::Settings);
     } else if (selected == kMenuQuit) {
@@ -290,6 +305,20 @@ void TrayIcon::SetToggleHotkey(std::wstring text, bool available) {
     UpdateTip();
 }
 
+void TrayIcon::SetIgnoreHotkey(std::wstring text, bool available) {
+    ignoreHotkeyText_ = std::move(text);
+    ignoreHotkeyAvailable_ = available;
+}
+
+void TrayIcon::SetLanguage(core::Language language) {
+    if (language_ == language) {
+        return;
+    }
+    language_ = language;
+    // 菜单每次弹出时现拼，不用刷新；悬浮提示是常驻的，必须立刻重建。
+    UpdateTip();
+}
+
 void TrayIcon::UpdateTip() {
     if (hwnd_ == nullptr || !added_) {
         return;
@@ -299,7 +328,7 @@ void TrayIcon::UpdateTip() {
     data.hWnd = hwnd_;
     data.uID = kIconId;
     data.uFlags = NIF_TIP | NIF_SHOWTIP;
-    const std::wstring tip = BuildToolTip(toggleHotkeyText_, hotkeyAvailable_);
+    const std::wstring tip = BuildToolTip(toggleHotkeyText_, hotkeyAvailable_, language_);
     ::lstrcpynW(data.szTip, tip.c_str(), _countof(data.szTip));
     ::Shell_NotifyIconW(NIM_MODIFY, &data);
 }

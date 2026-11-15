@@ -11,6 +11,8 @@
 
 namespace wind::core {
 
+class IgnoreList;
+
 /// @brief 选取模式的领域状态。
 ///
 /// 负责三件事：找到光标下的目标窗口、按窗口句柄缓存其属性、把界面发来的意图
@@ -22,7 +24,8 @@ class Selection {
 public:
     /// @param overlayWindow 叠加层窗口句柄，命中测试时会跳过它。
     /// @param registry 属性快照簿，生命周期必须长于本对象。
-    Selection(HWND overlayWindow, WindowRegistry& registry);
+    /// @param ignore 用户忽略规则，生命周期必须长于本对象；nullptr 表示不忽略任何窗口。
+    Selection(HWND overlayWindow, WindowRegistry& registry, const IgnoreList* ignore = nullptr);
 
     /// @brief 更新指针位置并重新做命中测试。
     /// @param screenPoint 屏幕坐标（物理像素）。
@@ -61,6 +64,7 @@ private:
 
     HWND overlay_;
     WindowRegistry* registry_;
+    const IgnoreList* ignore_ = nullptr;
     std::unique_ptr<TargetWindow> target_;
 };
 

@@ -1,4 +1,4 @@
-[简体中文](README.md) · **English**
+[简体中文](README.zh-CN.md) · **English**
 
 # Wind
 
@@ -6,13 +6,13 @@
 ![Language](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)
 ![UI](https://img.shields.io/badge/UI-Dear%20ImGui%20%2B%20D3D11-1f6feb)
 ![Build](https://img.shields.io/badge/build-CMake%203.25%2B-064F8C?logo=cmake&logoColor=white)
-![Version](https://img.shields.io/badge/version-1.0.0-brightgreen)
+![Version](https://img.shields.io/badge/version-1.1.0-brightgreen)
 
 **Wind is a featherweight window utility for Windows.** Press one hotkey, click any window, and you can adjust its opacity or pin it on top right away.
 
 No Alt+Tab hunting, no digging through each app's own settings, and no process injection — it only touches window attributes through public Win32 APIs.
 
-> **Note:** the application UI ships in Simplified Chinese only. Bold labels such as **Settings…** or **Exit** in this document are English renderings of the actual Chinese strings.
+> **Note:** the UI is available in English and Simplified Chinese. It follows the Windows display language by default and can be switched under **Settings → Appearance → Language**.
 
 ---
 
@@ -38,17 +38,20 @@ Both variants share the same installer identity, so newer releases upgrade in pl
 | **Window properties** | Opacity control | Press and drag left/right inside the opacity area (slider behaviour); in selection mode the mouse wheel nudges it by ±2%, finer than the ±5% buttons. |
 | | One-click pin | Toggle the target window between topmost and normal; the button's pressed state always reflects the window's real state. |
 | | Quick reset | Restore the current window's opacity and topmost state to whatever they were before Wind touched it. |
+| **Window filtering** | Ignore list | Press `Ctrl+Alt+I` to enter ignore-pick mode, then click the window you never want Wind to grab (taskbar, stubborn floating panels, …). Manage or remove entries from the settings page. |
+| | Built-in exclusions | Six classes of shell windows — desktop, taskbar, UWP shell and friends — are skipped out of the box, no configuration needed. |
 | **Visuals & feedback** | State at a glance | A toolbar-wide progress bar along the bottom edge shows the current opacity. |
 | | Theme adaptation | Follows the OS light/dark mode by default; can also be forced to light or dark. |
 | | Custom accent color | The built-in picker lets you choose an accent color — text color is derived automatically for contrast. |
+| | UI language | Simplified Chinese or English, or follow the OS display language. Switching is instant and applies to the settings page, toolbar, tray menu and hotkey notices. |
 | **Runtime & safety** | Leaves no trace | On exit, sign-out or shutdown, every window modified during the session is restored. |
 | | Single instance | Only one instance ever runs; launching again just brings up the settings page of the running copy. |
 | | Launch at login | Writes a per-user auto-start entry so Wind is waiting in the tray after you sign in; move `Wind.exe` elsewhere, run it once, and the registered path is corrected automatically. |
-| | Minimal distribution | One executable (~800 KB) with no runtime dependencies; run it as-is, or use the optional installer. |
+| | Minimal distribution | One executable (~900 KB) with no runtime dependencies; run it as-is, or use the optional installer. |
 
 ## Screenshots
 
-![Settings page](images/settings.png)
+![Settings page](images/settings.en.png)
 
 ![Wind](images/screenshot.png)
 
@@ -72,6 +75,18 @@ Both variants share the same installer identity, so newer releases upgrade in pl
 
 > Changes made in selection mode persist — that is the whole point of the tool. To revert a single window, hit **Reset** on the toolbar; to revert everything, quit Wind.
 
+### Ignoring windows you never want to grab
+
+Wind occasionally snaps onto odd windows such as the taskbar or the desktop. When that happens:
+
+1. Press `Ctrl+Alt+I` (or use the tray menu entry **Pick window to ignore**). You enter ignore-pick mode — the hint bar shows up as usual, but without a toolbar.
+2. Left-click the offending window. It is added to the ignore list and a balloon's title is the rule itself (`process · class`). Ignored windows are skipped in normal selection mode too, not just while adding.
+3. Right-click or press `Esc` to leave without adding anything.
+
+Rules are managed in the **Ignore windows** section of the settings page — click **Remove** on any row to lift it. Matching is on the **process plus window class** pair, so ignoring the taskbar does not also ignore your File Explorer windows.
+
+> The two hotkeys cannot be identical; if they collide, the ignore hotkey falls back to `Ctrl+Alt+I`.
+
 ## Command line
 
 | Argument | Behaviour |
@@ -85,14 +100,17 @@ Tray menu → **Settings…** opens the settings page (a borderless window with 
 
 **General**
 
-- **Hotkey**: click the button, then press the combination you want; `Esc` cancels recording, **Default** restores `Ctrl+Alt+W`.
+- **Select hotkey**: click the button, then press the combination you want; `Esc` cancels recording, **Default** restores `Ctrl+Alt+W`.
   A combination must contain at least one of `Ctrl` / `Alt` / `Shift` / `Win`.
-- If the combination is already taken by another program, the page shows an inline warning (currently Chinese only: "该快捷键已被其他程序占用，请换一个组合键。") and **stays open** — pick a usable one and press OK.
+- **Ignore hotkey**: same control, defaults to `Ctrl+Alt+I`. The two hotkeys cannot be the same — the second registration would always fail.
+- If the combination is already taken by another program, the page shows an inline warning — "Another program uses that pick hotkey, choose another combo." for the select hotkey, "Another program uses that ignore hotkey, choose another combo." for the ignore hotkey — and **stays open**; pick a usable one and press OK.
 - **Launch at login**: checks the box to write Wind's full path into `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` (per-user, no administrator rights needed, no machine-wide entries touched).
+- **Ignore windows**: shows your rules (`process · class`). **Remove** deletes a row; it is written to the config when you press OK. The six built-in shell classes are not listed — they always apply and cannot be removed.
 
 **Appearance**
 
 - **Theme**: Follow system / Light / Dark.
+- **Language**: Follow system / 简体中文 / English. "Follow system" keys off the Windows display language — Chinese systems get Chinese, everything else gets English. The other two segments are always written in their own language, so you can switch back even after landing on a language you don't read.
 - **Accent**: the swatch button opens a color-wheel picker; **Restore default** returns to the theme's own accent color.
 
 Every change is **previewed live**: **Cancel** rolls everything back, and only **OK** writes the config file.
@@ -107,6 +125,9 @@ Every change is **previewed live**: **Cancel** rolls everything back, and only *
 toggle_mods=3
 ; Virtual-key code, 87 = 'W'
 toggle_vk=87
+; Ignore hotkey, 73 = 'I'
+ignore_mods=3
+ignore_vk=73
 ; Whether the "quit hotkey removed" notice has been shown
 quit_hotkey_notice=1
 ; Launch-at-login flag (a cache only; the truth is the "Wind" value under HKCU\...\Run)
@@ -115,18 +136,29 @@ auto_start=0
 [appearance]
 ; system / light / dark
 theme=system
+; system / zh / en: UI language, system = follow the Windows display language
+language=system
 ; 0xRRGGBB; 000000 means "keep the theme's own accent color"
 accent=000000
+
+[ignore]
+; Rule count (authoritative: only `count` is read; extra ruleN lines are ignored)
+count=2
+; Lower-case exe name | window class name — both must match
+rule1=explorer.exe|Shell_TrayWnd
+rule2=notepad.exe|Notepad
 ```
 
-A missing file, an out-of-range value or an invalid combination (no modifier) simply falls back to the defaults — a broken config never stops the program from starting.
+A missing file, an out-of-range value or an invalid combination (no modifier) simply falls back to the defaults — a broken config never stops the program from starting. An older config without an `[ignore]` section means "nothing ignored", i.e. identical to previous versions.
 
 ## Known limitations
 
 - **Elevated windows**: when the target window runs at a higher integrity level, UIPI makes the system reject changes to its layered attributes, so opacity is unavailable — every toolbar section except **Pin** is greyed out. Pinning performs no extra check; failures are only logged.
 - **10% opacity floor**: below that the window is nearly invisible and the user would lose the ability to select it again and bring it back, so the value is hard-clamped.
 - **Windows 10 x64 only**: relies on `GetDpiForWindow` / `SetProcessDpiAwarenessContext` (Win10 1607+) and DirectComposition swap chains; 1809 or later, or Windows 11, is recommended in practice.
-- **Selection mode owns `Esc`**: while selecting, `Esc` is registered as a global hotkey to exit, so it is not passed to the foreground program.
+- **Selection mode owns `Esc`**: while selecting, `Esc` is registered as a global hotkey to exit, so it is not passed to the foreground program. The same applies to ignore-pick mode.
+- **Ignore list caps at 64 rules**: further additions are rejected with a balloon, keeping the config file small.
+- **Elevated windows cannot be added to the ignore list**: reading their process name is blocked by UIPI, so clicking one reports that its process could not be identified.
 - **The registry wins for auto-start**: if you disable Wind under Task Manager → Startup, the settings page will show the box unchecked next time; tick it again and press OK to re-enable. And if `Wind.exe` was moved and never run from its new location, that one boot silently fails to start — running it once heals the entry.
 
 ## Building from source

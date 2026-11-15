@@ -53,7 +53,8 @@ bool SettingsWindow::Create(HINSTANCE instance, Listener* listener) {
 
     // 工具窗口（不进任务栏/Alt+Tab，与托盘程序一致）；不加 WS_EX_NOACTIVATE，
     // 设置页需要真实键盘焦点才能录制快捷键。
-    hwnd_ = ::CreateWindowExW(WS_EX_TOOLWINDOW, kClassName, L"Wind 设置", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr,
+    // 标题只是窗口元数据（不显示在界面上），真正的标题由 Application 按语言设置。
+    hwnd_ = ::CreateWindowExW(WS_EX_TOOLWINDOW, kClassName, L"Wind", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr,
                              instance_, this);
     if (hwnd_ == nullptr) {
         platform::Log("CreateWindowEx 失败：%s", platform::LastErrorMessage(::GetLastError()).c_str());
@@ -115,6 +116,12 @@ void SettingsWindow::TopmostPulse() {
 void SettingsWindow::Hide() {
     if (hwnd_ != nullptr) {
         ::ShowWindow(hwnd_, SW_HIDE);
+    }
+}
+
+void SettingsWindow::SetTitle(const wchar_t* title) {
+    if (hwnd_ != nullptr && title != nullptr) {
+        ::SetWindowTextW(hwnd_, title);
     }
 }
 

@@ -1,6 +1,6 @@
 # Wind 开发文档
 
-面向维护者：讲清**代码怎么分层、状态怎么流转、某些看起来绕的地方为什么这么写**。功能说明与构建步骤见 [../README.md](../README.md)。
+面向维护者：讲清**代码怎么分层、状态怎么流转、某些看起来绕的地方为什么这么写**。功能说明与构建步骤见 [../README.zh-CN.md](../README.zh-CN.md)（中文）或 [../README.md](../README.md)（English）。
 
 ---
 
@@ -13,7 +13,7 @@
 | 界面 | Dear ImGui（`win32-binding` + `dx11-binding`） | 只需要一层“画几何 + 命中测试”，不需要控件库 |
 | 渲染 | D3D11 + DirectComposition 合成交换链 | 唯一能做出**逐像素半透明**全屏叠加层的路线（见 §5.1） |
 | 运行库 | `/MT` 静态链接 | 产物单文件，不依赖 VC 运行库 |
-| 持久化 | `WritePrivateProfileStringW` | 四个配置项不值得引入 ini 库 |
+| 持久化 | `WritePrivateProfileStringW` | 十几个配置项不值得引入 ini 库 |
 
 界面骨架刻意保持“最简化”：没有消息总线、没有事件队列、没有抽象接口工厂。模块之间靠**一个组装层 + 构造函数注入/HWND 传递**联系。
 
@@ -32,9 +32,9 @@ wind::
 ```mermaid
 graph TD
     app["app<br/>Application / main"]
-    ui["ui<br/>OverlayWindow · ToolbarView · SettingsWindow<br/>SettingsView · TrayIcon · IconSet · Theme"]
-    core["core<br/>TargetWindow · WindowProperties<br/>WindowRegistry · Selection · Settings · SettingsStore"]
-    platform["platform<br/>Renderer · Hotkey · WheelHook · Dpi<br/>SingleInstance · SystemTheme · AutoStart · Win32Error"]
+    ui["ui<br/>OverlayWindow · ToolbarView · HintBar · IgnorePickerView<br/>SettingsWindow · SettingsView · TrayIcon · IconSet · Theme<br/>Text（i18n 文案表）"]
+    core["core<br/>TargetWindow · WindowProperties · WindowRegistry<br/>Selection · IgnoreList · Settings · SettingsStore"]
+    platform["platform<br/>Renderer · Hotkey · WheelHook · Dpi · ProcessInfo<br/>SingleInstance · SystemTheme · AutoStart · Win32Error<br/>SystemLocale · Text（UTF-8 ⇄ UTF-16）"]
 
     app --> ui
     app --> core
@@ -59,8 +59,10 @@ Tips:
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
-    Idle --> Selecting: 热键 / 托盘「开始选取」
+    Idle --> Selecting: 选取热键 / 托盘「开始选取」
     Selecting --> Idle: 右键空白处 / Esc / 托盘「结束选取」/ 打开设置
+    Idle --> IgnorePicking: 忽略热键 / 托盘「选取要忽略的窗口」
+    IgnorePicking --> Idle: 左键点击加入 / 右键 / Esc / 打开设置
     Idle --> Settings: 托盘「设置…」/ 二次启动 / 点击气泡
     Settings --> Idle: 确定 / 取消 / 关闭
 ```
@@ -68,10 +70,13 @@ stateDiagram-v2
 | 状态 | 可见窗口 | 驱动 | CPU |
 | --- | --- | --- | --- |
 | `Idle` | 都隐藏 | `GetMessageW` 阻塞 | ≈ 0 |
-| `Selecting` | 叠加层置顶 | 叠加层 `WM_TIMER`（16 ms） | 动画帧率 |
+| `Selecting` | 叠加层置顶 + 工具栏 | 叠加层 `WM_TIMER`（16 ms） | 动画帧率 |
+| `IgnorePicking` | 叠加层置顶（只画描边 + 提示条） | 叠加层 `WM_TIMER`（16 ms） | 动画帧率 |
 | `Settings` | 设置页 | 设置页 `WM_TIMER`（16 ms） | 动画帧率 |
 
-**`Selecting` 与 `Settings` 互斥**，`OpenSettings()` 第一件事就是 `LeaveSelection()`。原因很实际：两边都靠 ImGui 收鼠标和键盘，一个进程里两个 ImGui 上下文同时抢输入，必然互相吃事件。与其做焦点仲裁，不如规定它们不可能同时出现。
+**三个可见态两两互斥**，`OpenSettings()` 会先 `LeaveSelection()` 再 `LeaveIgnorePicker()`，`EnterIgnorePicker()` 会先 `LeaveSelection()`。原因很实际：它们都靠 ImGui 收鼠标和键盘（设置页是一个 ImGui 上下文，叠加层是另一个），一个进程里两个上下文同时抢输入，必然互相吃事件。与其做焦点仲裁，不如规定它们不可能同时出现。
+
+`IgnorePicking` 不复用 `Selecting` 的状态位，而是独立成员 `ignorePicking_`：它**不碰 `WindowRegistry` 快照、不改任何窗口属性**，只读类名与进程名，因此没有“退出还原”这回事。两者共用的只有叠加层窗口、16 ms 帧定时器和那个裸 `Esc` 热键。
 
 退出选取模式**不还原**已改的属性（这是工具本意），只有「重置」按钮或程序退出才还原。
 
@@ -88,9 +93,9 @@ stateDiagram-v2
 3. `overlay_.Create()` → `renderer_.Initialize(overlay, 虚拟屏幕宽高)`。
 4. `settingsWindow_.Create()` —— 只建窗口、保持隐藏，**不建 D3D 设备**；设置页的渲染器是懒初始化的，否则每次开机都要多申请一套设备 + 交换链。
 5. `SyncUiScale()` / `SyncTheme()` → `icons_.Load(renderer_.Device())` → `toolbar_.SetIcons(&icons_)`。
-6. `LoadSettingsAndHotkey()` —— 注册成功与否只有两种结果，见 §7。
+6. `LoadSettingsAndHotkey()` —— 依次注册**选取热键**与**忽略热键**；两者的结果只有“成功 / 不可用”两种，见 §7。
 7. `SyncAutoStart()` —— 比对注册表里的自启项与当前 exe 路径，见 §5.12。
-8. `tray_.Create()` → 按 `HotkeyStatus` 弹气泡。
+8. `tray_.Create()` → 按两个 `HotkeyStatus` 弹气泡。
 9. `GetMessageW` 循环。
 
 ### 4.2 消息循环里三处特殊处理
@@ -188,7 +193,7 @@ constexpr DWORD kExStyle = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
 
 ### 5.8 设置页的工作副本
 
-`SettingsView::Open(settings, activeSnapshot, hotkeyAvailable)` 保存一份**工作副本**：
+`SettingsView::Open(settings, activeHotkeys)` 保存一份**工作副本**；`activeHotkeys` 是 `ActiveHotkeys{ toggle, toggleAvailable, ignorePicker, ignorePickerAvailable }` 快照，供页面回填两个输入框，并让不可用的那个显示「已被占用」。
 
 ```mermaid
 sequenceDiagram
@@ -206,8 +211,15 @@ sequenceDiagram
     alt 注册失败
         A->>V: SetError("已被占用") —— 不关窗
     else 注册成功
-        A->>S: Save(settings_)
-        A->>A: SyncTrayHotkey() → CloseSettings(true)
+        A->>A: ApplyIgnoreHotkey(working.ignoreHotkey)
+        alt 注册失败
+            A->>A: 回滚 ApplyToggleHotkey(旧键)
+            A->>V: SetError("忽略快捷键已被占用") —— 不关窗
+        else 注册成功
+            A->>A: ignoreList_.Reset(working.ignoredWindows) 重建索引
+            A->>S: Save(settings_)
+            A->>A: SyncTrayHotkey() → CloseSettings(true)
+        end
     end
     U->>V: 点击「取消」
     A->>A: SyncTheme() 按已落盘的设置重算，回滚预览
@@ -217,7 +229,11 @@ sequenceDiagram
 
 `Open()` 的第二个参数故意传**当前实际生效的热键**（`activeHotkey_`），页面用它回填输入框里的组合键，而不是再从 `settings_` 取一次 —— 非法配置在启动时已被回落到默认值，两者可能不同（是否真正可用则由后面的布尔参数表示）。
 
-确认分支里的顺序也有讲究：**自启先写、热键后写**。注册表写失败可以当场 `SetError` 并留在页面上；热键换成功后再回退代价更大，把可能失败的步骤排在前面，失败时页面保持原样。
+确认分支里的顺序也有讲究：**自启先写、选取热键次之、忽略热键最后**。注册表写失败可以当场 `SetError` 并留在页面上；热键换成功后再回退代价更大，把可能失败的步骤排在前面，失败时页面保持原样。忽略热键失败时还会把**选取热键回滚成旧值**，否则用户会得到“选取键换成了新的、忽略键还是旧的”这种半吊子状态。
+
+`ignoreList_.Reset()` 放在 `Save()` 之前：列表可能被删过项，索引里的 `size_t` 下标必须在下一次命中测试之前重建，否则会指向已删除的规则。
+
+设置页的确认成功只走**一次**`Save()`。忽略列表另有独立的一条落盘路径：在 `IgnorePicking` 里点击加入时立刻 `settings_.ignoredWindows = ignoreList_.Rules()` → `Save()`，不等设置页（否则用户加完就退出程序，那条规则会丢）。两条路径写的是同一个字段，后者只是把前者的结果原样搬过来。
 
 ### 5.9 主题与强调色
 
@@ -296,6 +312,86 @@ sequenceDiagram
 
 ---
 
+### 5.13 忽略列表：为什么存「进程 + 类名」而不是 HWND
+
+需求来自一个真实抱怨：Wind 偶尔会吸附到任务栏、桌面这类非常规窗口上，用户想永久跳过它们。设计上有三个可选粒度，最后选了最保守的一种：
+
+| 粒度 | 换窗口后还生效？ | 重启程序后还有效？ | 误伤风险 |
+| :--- | :--- | :--- | :--- |
+| `HWND` | ❌ 句柄会被复用，也会变 | ❌ | 低 |
+| 进程 exe 名 | ✅ | ✅ | **高**（忽略 `explorer.exe` 会连带忽略资源管理器窗口） |
+| 进程 exe 名 **且** 窗口类名 | ✅ | ✅ | 低 |
+
+`IgnoreRule` 因此是 `{ process, className }` 两个**小写**字符串，匹配用 `&&`：两个都相等才算命中。这样「忽略任务栏」(`explorer.exe` + `Shell_TrayWnd`) 不会波及用户的资源管理器文件夹窗口 —— 后者的类名是 `CabinetWClass`。
+
+几处刻意的实现选择：
+
+- **进程名取不到时规则不生效。** `QueryFullProcessImageNameW` 对高权限进程会失败（UIPI）。这种窗口加入列表也永远匹配不上，所以选取时直接提示“无法识别该窗口所属的进程”，而不是存一条死规则。
+- **两级排除。** `TargetWindow::BuiltinExcludedClasses()` 是**编译期硬编码的 6 个外壳类**（`Progman`、`WorkerW`、`Shell_TrayWnd`、`Shell_SecondaryTrayWnd`、`Windows.UI.Core.CoreWindow`、`ForegroundStaging`），任何配置都关不掉；用户的 `IgnoreList` 是**运行期可增删**的第二级。前者保证“开箱即用不会吸到任务栏”，后者负责长尾。
+- **索引是类名 → 规则下标的哈希表。** 命中测试每帧每个窗口都要做，遍历 64 条规则做字符串比较太浪费。`byClass_` 让一次查找只剩同一个类名下的少数几条；进程名查询另加 `processCache_`（`mutable`，`unordered_map<DWORD, wstring>`），因为 `OpenProcess` 是这几个 API 里最贵的。
+- **`Reset()` 重建索引**，`Add()`/`Remove()` 增量维护。任何改动列表的路径都必须经过它们，不能直接改内部 vector。
+- **上限 64 条。** 超过就拒绝并提示，避免配置文件被写爆、每帧命中测试退化。
+- **老配置没有 `[ignore]` 段时零行为变化**：`SettingsStore::Load()` 回落空列表，等于“什么都没忽略”，与升级前完全一致。
+
+ini 格式（`ruleN` 从 1 起，`|` 是分隔符）：
+
+```ini
+[ignore]
+count=2
+rule1=explorer.exe|Shell_TrayWnd
+rule2=notepad.exe|Notepad
+```
+
+> `count` 是权威长度：读的时候只认 `count`，遇到 `ruleN` 缺失或非法（没有分隔符、超长、空串）就整条丢弃。写成这样是为了让手改配置的人“删掉 `count` 之外的行”也不会读到脏数据。
+
+### 5.14 界面语言（i18n）
+
+只翻**界面**，不翻日志与模式名（`sticky`、`ignore` 这类调试信息保持英文），因此不需要任何翻译框架：一张静态对照表就够了。
+
+**三层约定**
+
+| 层 | 类型 | 用途 |
+| :--- | :--- | :--- |
+| `core::Language` | `System` / `Chinese` / `English` | 配置里存的**用户意图**，`System` 只在进入 ui 层之前存在 |
+| `ui::Text` 枚举 + `Tr*` | 全部界面文案 | 文案的唯一来源，ImGui 侧取 `const char*`，Win32 侧取 `std::wstring` |
+| `platform::Text` | `Widen` / `Narrow` | 两套字符串之间的桥（UTF-8 ⇄ UTF-16） |
+
+- **`Language::System` 必须在进入 ui 层前解析完。** `core::Settings::UsesChineseUi(bool systemChinese)` 和 `ui::Tr()` 里都把 `System` 当中文兜底，但真正解析发生在 `Application`：启动时用 `platform::SystemUsesChineseUi()`（`GetUserDefaultUILanguage()` + `PRIMARYLANGID == LANG_CHINESE`）算出一个具体值存进 `uiLanguage_`，之后所有视图只说 `Chinese` / `English`。
+- **两套字符串是硬需求。** ImGui 只吃 UTF-8 窄串；托盘提示、菜单、消息框、窗口标题都走 Win32 API，要 UTF-16。所以文案表是 `{ zh, en }` 的 UTF-8 对照，`TrWide()` 在内部 `Widen`，不需要维护两份表。
+- **`TrFormatWide` 的坑。** 文案里的 `%s` 是按**窄串**填充的，热键却是宽串：必须先 `platform::Narrow` 再整体 `Widen`，不能把 `wchar_t*` 直接塞进 `%s`。`TrayIcon::BuildToolTip()` 就是这条路径。
+- **文案表用“枚举 + 并列数组”。** `Text.cpp` 里的 `kEntries[]` 和 `Text.h` 的枚举一一对应，`static_assert(std::size(kEntries) == Text::Count)` 让漏改在编译期就炸。加文案必须**同时**动 `Text.h` 和 `Text.cpp`。
+
+**语言即时生效与回滚**
+
+设置页每帧把工作副本交给 `Application::PreviewTheme()`，语言也搭这条便车：
+
+```mermaid
+sequenceDiagram
+    participant V as SettingsView
+    participant A as Application
+    V->>A: 每帧 PreviewTheme(Working())
+    A->>A: ApplyUiLanguage(settings) → 解析 System → uiLanguage_
+    A->>A: 幂等检查：resolved == uiLanguage_ 就 return
+    Note over V,A: 关窗时统一走 CloseSettings() → SyncTheme()
+    A->>A: SyncTheme() 用落盘的 settings_ 重算 → 取消即自动回滚
+```
+
+- **不需要专门的回滚代码**：「确定」和「取消」都走同一个 `SyncTheme()`，前者读到新值、后者读回旧值。少一条分支就少一个 bug 面。
+- **`ApplyUiLanguage` 必须幂等**，否则每帧都会 `TrayIcon::UpdateTip()`。
+- 语言行有两个特殊处理：第 1 段「跟随系统」跟着界面语言翻译（`OptionSystem` 文案）；第 2、3 段固定写「简体中文」/「English」——语言要自称，否则英文用户切到中文就找不到切回去的路。`SettingsView.cpp` 里唯一保留的中文字面量就是 `"简体中文"`。
+- **分段按钮的宽度按文案量**（`SettingsView::SegmentWidth()`，`CalcTextSize + 24` 且不小于 88）。英文标签比中文长，写死宽度会溢出边框。
+
+**ini 键**
+
+```ini
+[appearance]
+language=system   ; system | zh | en，缺省即 system（老配置零行为变化）
+```
+
+> `SettingsStore::ParseLanguage()` / `LanguageText()` 负责读写；写盘时总是显式写出来，方便手改。
+
+---
+
 ## 6. 选取交互细节
 
 下面几条都是“用户能直接感觉到”的坑，改动前请先读：
@@ -319,9 +415,12 @@ sequenceDiagram
 `TargetWindow::FindAt()` 按 Z 序从顶到底枚举，取第一个“符合条件且包含光标”的窗口。排除条件：
 
 - 不可见 / 最小化 / 被 DWM 隐形（`DWMWA_CLOAKED`，UWP 挂起、虚拟桌面切换）；
-- 外壳窗口类名（`Progman`、`WorkerW`、`Shell_TrayWnd`、`Shell_SecondaryTrayWnd`、`Windows.UI.Core.CoreWindow`、`ForegroundStaging`）；
+- 命中内置黑名单（§5.13，`BuiltinExcludedClasses()` 的 6 个外壳类，**不可配置**）；
+- 命中用户忽略列表（`FindAt` 的第三个参数 `const IgnoreList*`，为空表示不查，见 §5.13）；
 - 宽或高 < 8 px 的辅助窗口；
 - 自己的叠加层（通过参数传入的 `exclude`）。
+
+两个模式的排除链是**同一条**：`Selection::UpdatePointer()` 与 `UpdateIgnoreTarget()` 都把 `&ignoreList_` 传进 `FindAt()`。这意味着被忽略的窗口在普通选取里也会被跳过 —— 这正是需求的本意（“以后不要再吸到这个窗口”），而不是只在添加时跳过。
 
 边界优先取 `DWMWA_EXTENDED_FRAME_BOUNDS` —— Win10+ 的 `GetWindowRect` 会带上窗口阴影占的**不可见边距**，直接拿它画框会比视觉边界大一圈。
 
@@ -354,9 +453,49 @@ graph LR
 
 > 补充：目标窗口以更高权限运行（UIPI）时，除「置顶」外的区块整体置灰（`Selection::OpacityLocked()`）。
 
+### 6.6 忽略选取模式
+
+和 `Selecting` 长得像、实现上刻意保持距离：
+
+```mermaid
+flowchart TD
+    A["忽略热键 / 托盘「选取要忽略的窗口」"] --> B["EnterIgnorePicker()"]
+    B --> C["LeaveSelection() —— 两模式互斥"]
+    C --> D["overlay_.Show() + 全屏交换链"]
+    D --> E["注册裸 VK_ESCAPE"]
+    E --> F["鼠标移动 → UpdateIgnoreTarget()"]
+    F --> G{"左键点击？"}
+    G -- 是 --> H["MakeIgnoreRule(hwnd)"]
+    H --> I{"已在列表 / 取不到进程名 / 已达上限？"}
+    I -- 是 --> J["托盘气泡说明原因 → 退出"]
+    I -- 否 --> K["ignoreList_.Add → settings_ 同步 → Save() → 退出"]
+    G -- 右键 / Esc --> L["LeaveIgnorePicker() 直接退出"]
+```
+
+要点：
+
+- **只画描边，不画工具栏。** `IgnorePickerView::Draw()` 接受目标矩形，画 2 px 描边 + 1 px 外阴影 + 内发光，视觉上和 `ToolbarView` 的目标框同源（同样的 `kFrameThickness` / `kFrameRounding` / `kGlowAlpha` 取值），但没有按钮：这个模式下唯一的操作就是点一下。
+- **提示条抽成了 `HintBar`。** `DrawHintBar(theme, uiScale, origin, text)` 原本是 `ToolbarView::DrawHint()` 里的私有实现，两种模式都要用同一套视觉（贴主显示器工作区底部、圆角、`hintEdge` 描边），所以提出来做成自由函数，两边各自传文案。
+- **没有目标时也保持模式。** 鼠标移到桌面缝隙上时 `UpdateIgnoreTarget()` 命中不到就保留上一次目标（与 §6.1 同策略），准星不会闪；如果从来没有过目标，提示换成“把光标移到要忽略的窗口上”。
+- **命中失败要么说明原因、要么什么都不做。** 已经在列表里、进程名取不到、列表已满、规则非法 —— 四种情况都 `LeaveIgnorePicker()` 后用托盘气泡告知，不静默吞掉点击：用户按下热键、点了一下，什么都没发生是最难受的反馈。
+- **成功后立刻落盘。** 这条路径不等设置页：`settings_.ignoredWindows = ignoreList_.Rules()` → `SettingsStore::Save()`。托盘气泡显示规则的 `进程 · 类名`，用户一眼能对上自己刚点的窗口。
+- **`Esc` 复用同一个裸 `VK_ESCAPE` 注册**（`escapeHotkey_`，id 固定）。`LeaveIgnorePicker()` 里只有在 `selecting_` 也为假时才注销它，避免两个模式交接时反复注册导致失败。
+
+设置页里的管理区（§5.8）复用同一份 `std::vector<IgnoreRule>`：每行显示 `进程 · 类名` + 「移除」，下面是空态提示与操作说明。内置黑名单**不在界面上展示** —— 它不可增删，列出来只会让用户以为自己能改，或是反复尝试「忽略任务栏」后困惑于列表里没有这一项。列表行用 `InvisibleButton` 手绘 + `SetCursorScreenPos` 定位，**每轮循环末尾必须再提交一个 `Dummy(0,0)`** —— 否则 ImGui 会判定这里用 `SetCursorScreenPos` 撑大了窗口边界并弹出断言。
+
 ---
 
-## 7. 热键与降级
+## 7. 热键
+
+两个全局热键，走的是**同一套**注册逻辑（`RegisterHotkey()` / `ApplyHotkey()` 通用化，消息循环按 `WM_HOTKEY` 的 id 分发）：
+
+| 用途 | id | 默认 | 可配置 |
+| :--- | :--- | :--- | :--- |
+| 唤出/收起工具栏 | `kToggleHotkeyId` = 1 | `Ctrl+Alt+W` | ✅ 设置页 |
+| 选取窗口加入忽略 | `kIgnoreHotkeyId` = 3 | `Ctrl+Alt+I` | ✅ 设置页 |
+| （临时）退出选取 | `kEscapeHotkeyId` = 2 | 裸 `Esc` | ❌ 仅在选取/忽略模式下存在 |
+
+两者启动时的处理完全一致：读 ini → 组合键合法就用、不合法回落默认 → 尝试注册 → 失败则 `HotkeyStatus::Unavailable`。**唯一额外的规则是：两个热键不能相同。** 相同的话第二个注册必然失败，用户会看到“改完热键后另一个失效”这种莫名其妙的状态，所以 `LoadSettingsAndHotkey()` 里先比较，撞车就把忽略热键回落默认，撞的还是同一个再退到 `Ctrl+Alt+I`。
 
 ```mermaid
 flowchart TD
@@ -373,11 +512,13 @@ flowchart TD
 - **全程不弹模态框、不阻止启动。** 热键被占用是很常见的事，为它挡住程序启动属于因小失大。
 - **不做备选键尝试。** 配置键被占用就干脆本次没有全局热键：在用户机器上悄悄占用别的组合键，比“暂时没有全局热键、只留托盘”更糟 —— 用户根本不知道自己被占了什么。
 - 注册时补 `MOD_NOREPEAT`；但**配置里不存** `MOD_NOREPEAT`，它是注册行为开关，存进去会让“用户看到的组合键”和“文件里的数值”对不上。
-- `ApplyToggleHotkey()` 失败时**立刻把旧键注册回去**。改坏了不能连原有入口一起丢掉，否则用户得重启才能恢复。
+- `ApplyHotkey()` 失败时**立刻把旧键注册回去**。改坏了不能连原有入口一起丢掉，否则用户得重启才能恢复。设置页确认分支里忽略热键失败还会连带把选取热键回滚成旧值（见 §5.8）。
 - 只有 `HotkeyStatus::Unavailable` 才弹托盘气泡；气泡点击直接进设置页（`NIN_BALLOONUSERCLICK`），因为那正是用户需要去改的地方。
+- 托盘菜单的「选取要忽略的窗口」项用 `SetIgnoreHotkey(text, ok)` 决定是否在标签后附带组合键：热键不可用时只是一行纯文字，菜单项**始终可点** —— 忽略模式本来就不依赖热键。
 - 曾经的 `Ctrl+Alt+Q` 退出热键已删除（太容易和别的程序抢），用 `settings_.quitHotkeyNoticeShown` 只提示一次，避免每次开机都弹。
+- 热键冲突检测是**自己和自己比**（两个 Wind 热键），不探测系统里其它程序占用了什么 —— 那需要枚举所有进程，代价和收益不成正比。
 
-**`Esc` 例外**：选取模式期间额外注册一个**裸 `VK_ESCAPE`** 全局热键用于退出。它只在选取模式下存在（`EnterSelection` 注册、`LeaveSelection` 注销），代价是该状态下 `Esc` 不会传给前台程序。
+**`Esc` 例外**：选取/忽略模式期间额外注册一个**裸 `VK_ESCAPE`** 全局热键用于退出。它只在这两个模式下存在（进入时注册、退出时注销，且两个模式交接时不重复注册），代价是该状态下 `Esc` 不会传给前台程序。
 
 ---
 
@@ -577,3 +718,6 @@ platform::Log("交换链创建失败：%s", platform::HResultMessage(hr).c_str()
 - API 用 PascalCase，成员变量带 `_` 后缀，常量 `k` 前缀（`kMinOpacity`、`kFrameTimerId`）。
 - 尺寸常量一律“96 DPI 设计值 + 运行时乘 scale”，不要在代码里写魔法像素。
 - 失败路径：`platform` 层记日志并返回 `false`/空值，由调用方决定是降级、弹框还是放弃启动；**不要静默忽略**。
+- **读进程信息统一走 `platform::ProcessInfo`。** 目前只有 `ProcessImageName(DWORD)` 一个入口，业务层不要再直接调 `OpenProcess`/`QueryFullProcessImageNameW`：句柄关闭、路径规范化（去目录、转小写）、失败返回空串这些细节必须只有一份实现。`core` 不碰 Win32 头文件的约定对它是**唯一例外**——它包在 `platform` 命名空间里，`core` 只包含它的头文件，`windows.h` 的污染止步于 `ProcessInfo.cpp`。
+- **窗口类名/进程名一律小写比较。** `IgnoreList` 存储和比对都用 `towlower` 归一后的字符串，`Describe()` 直接拿归一值展示（用户改 ini 时看到的就是小写，避免“为什么我写 `Explorer.exe` 不匹配”的困惑）。
+- 手改 UTF-8 源文件时**必须**用显式 UTF-8 读写（`[System.IO.File]::ReadAllText(path, UTF8)`）；`Get-Content -Raw` 在 PS 5.1 下按 ANSI 解码，会不可逆地毁掉中文。
