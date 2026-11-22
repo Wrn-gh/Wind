@@ -217,7 +217,3 @@ Wind/
 ├─ docs/dev.md             开发文档
 └─ build/                  构建输出（由 CMake 生成）
 ```
-
-## 开发文档
-
-架构分层、状态机、关键设计取舍、调试方法见 [docs/dev.md](docs/dev.md)。
