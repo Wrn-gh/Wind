@@ -92,7 +92,7 @@ private:
     /// @brief 用给定设置做实时预览（设置页每帧调用），不落盘。
     void PreviewTheme(const core::Settings& settings);
     /// @brief 读取设置文件并注册热键；任一组被占用时对应 available 标记为 false。
-    HotkeyStatus LoadSettingsAndHotkey();
+    HotkeyStatus LoadHotkey();
     /// @brief 注册一个具体的组合键（内部会先注销旧注册）。
     bool RegisterHotkey(platform::Hotkey& hotkey, int id, const core::HotkeyBinding& binding);
     /// @brief 把一组热键换成新值；失败时立刻恢复旧键，返回 false。

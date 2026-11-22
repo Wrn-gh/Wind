@@ -92,6 +92,9 @@ int Application::Run(HINSTANCE instance) {
         platform::Log("设置页窗口创建失败，托盘里的「设置…」将不可用。");
     }
 
+    // 载入设置
+    settings_ = core::SettingsStore::Load();
+
     SyncUiScale();
     SyncTheme();
 
@@ -100,7 +103,7 @@ int Application::Run(HINSTANCE instance) {
     toolbar_.SetIcons(&icons_);
 
     // 热键注册全程不弹模态框、不退出：配置键被占用就不注册全局热键，只留托盘入口。
-    const HotkeyStatus hotkeyStatus = LoadSettingsAndHotkey();
+    const HotkeyStatus hotkeyStatus = LoadHotkey();
 
     // 自愈要在托盘之前做：即使托盘创建失败，移动过位置的 exe 也能把自启项修正过来。
     SyncAutoStart();
@@ -189,8 +192,7 @@ int Application::Run(HINSTANCE instance) {
     return static_cast<int>(message.wParam);
 }
 
-HotkeyStatus Application::LoadSettingsAndHotkey() {
-    settings_ = core::SettingsStore::Load();
+HotkeyStatus Application::LoadHotkey() {
     if (!core::IsValidHotkey(settings_.toggleHotkey)) {
         platform::Log("设置里的选取快捷键非法，改用默认值 Ctrl+Alt+W。");
         settings_.toggleHotkey = core::kDefaultSettings.toggleHotkey;
@@ -209,9 +211,6 @@ HotkeyStatus Application::LoadSettingsAndHotkey() {
     }
 
     ignoreList_.Reset(settings_.ignoredWindows);
-
-    // 语言必须在读取设置之后立刻应用：后面的托盘提示、设置页都要用正确的语言。
-    ApplyUiLanguage(settings_);
 
     activeHotkey_ = settings_.toggleHotkey;
     activeIgnoreHotkey_ = settings_.ignoreHotkey;
